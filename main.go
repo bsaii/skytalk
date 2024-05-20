@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"github.com/shomali11/slacker/v2"
 )
 
 type Weather struct {
@@ -124,37 +126,50 @@ func main() {
 		log.Fatal("OPEN_WEATHER_API_KEY environment variable not set.")
 	}
 
-	cityName := "Accra"
-	geocodingUrl := fmt.Sprintf("https://api.openweathermap.org/geo/1.0/direct?q=%s&limit=5&appid=%s", cityName, openWeatherGeoCodingApiKey)
-	geocodingCh := make(chan []ApiGeoCodingResponse)
+	slackBotToken := os.Getenv("SLACK_BOT_TOKEN")
+	if slackBotToken == "" {
+		log.Fatal("SLACK_BOT_TOKEN environment variable not set.")
+	}
 
-	go fetchGeocoding(geocodingUrl, geocodingCh)
+	slackAppToken := os.Getenv("SLACK_APP_TOKEN")
+	if slackAppToken == "" {
+		log.Fatal("SLACK_APP_TOKEN environment variable not set.")
+	}
 
-	geocodingData := <-geocodingCh
-	log.Println("GeoCodingData: ", geocodingData)
+	bot := slacker.NewClient(slackBotToken, slackAppToken)
 
-	weatherUrl := fmt.Sprintf("https://openweathermap.org/data/2.5/onecall?lat=%f&lon=%f&units=metric&exclude=minutely,hourly,daily,alerts&appid=%v", geocodingData[0].Lat, geocodingData[0].Lon, openWeatherApiKey)
-	weatherCh := make(chan ApiWeatherResponse)
+	bot.AddCommand(&slacker.CommandDefinition{
+		Command:     "What is the weather in <location>",
+		Description: "Current weather in the city.",
+		Examples:    []string{"What is the weather in Paris"},
+		Handler: func(ctx *slacker.CommandContext) {
+			location := ctx.Request().Param("location")
 
-	go fetchWeather(weatherUrl, weatherCh)
+			geocodingUrl := fmt.Sprintf("https://api.openweathermap.org/geo/1.0/direct?q=%s&limit=5&appid=%s", location, openWeatherGeoCodingApiKey)
+			geocodingCh := make(chan []ApiGeoCodingResponse)
 
-	weatherData := <-weatherCh
-	log.Println("weatherData: ", weatherData)
+			go fetchGeocoding(geocodingUrl, geocodingCh)
 
-	// slackBotToken := os.Getenv("SLACK_BOT_TOKEN")
-	// if slackBotToken == "" {
-	// 	log.Fatal("SLACK_BOT_TOKEN environment variable not set.")
-	// }
+			geocodingData := <-geocodingCh
 
-	// slackAppToken := os.Getenv("SLACK_APP_TOKEN")
-	// if slackAppToken == "" {
-	// 	log.Fatal("SLACK_APP_TOKEN environment variable not set.")
-	// }
+			weatherUrl := fmt.Sprintf("https://openweathermap.org/data/2.5/onecall?lat=%f&lon=%f&units=metric&exclude=minutely,hourly,daily,alerts&appid=%v", geocodingData[0].Lat, geocodingData[0].Lon, openWeatherApiKey)
+			weatherCh := make(chan ApiWeatherResponse)
 
-	// bot := slacker.NewClient(slackBotToken, slackAppToken)
+			go fetchWeather(weatherUrl, weatherCh)
 
-	// bot.AddCommand("weather in <location>", &slacker.CommandDefinition{
-	// 	Description: '',
-	// })
+			weatherData := <-weatherCh
+
+			r := fmt.Sprintf("The current weather temperature in %s is %f.", geocodingData[0].Name, weatherData.Current.Temp)
+			ctx.Response().Reply(r)
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := bot.Listen(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 }
