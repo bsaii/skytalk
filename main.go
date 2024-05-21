@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 
@@ -159,7 +160,7 @@ func main() {
 
 			weatherData := <-weatherCh
 
-			r := fmt.Sprintf("The current weather temperature in %s is %f.", geocodingData[0].Name, weatherData.Current.Temp)
+			r := fmt.Sprintf("The current weather temperature in %s is %v°C.", geocodingData[0].Name, int(math.Ceil(float64(weatherData.Current.Temp))))
 			ctx.Response().Reply(r)
 		},
 	})
